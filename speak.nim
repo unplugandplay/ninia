@@ -108,6 +108,13 @@ proc distTorus(ip: Interp, a, b: Vec2): float64 =
   var dy = abs(a.y - b.y); if dy > ip.world / 2: dy = ip.world - dy
   sqrt(dx * dx + dy * dy)
 
+proc torusDelta(ip: Interp, fromPos, toPos: float64): float64 =
+  ## shortest signed delta on the torus — direction vectors must be
+  ## wrapped, not just distances
+  result = toPos - fromPos
+  if result > ip.world / 2: result -= ip.world
+  elif result < -ip.world / 2: result += ip.world
+
 proc fieldAt(ip: Interp, f: FieldObj, p: Vec2): float64 =
   let i = clamp(int(p.x / ip.world * float64(f.nx - 1)), 0, f.nx - 1)
   let j = clamp(int(p.y / ip.world * float64(f.ny - 1)), 0, f.ny - 1)
@@ -376,8 +383,8 @@ proc execStmt(ip: var Interp, st: Stmt) =
         if d < bestD: bestD = d; bestI = k
       if bestI >= 0 and bestD < r and bestD > 1e-9:
         let q = other.agents[bestI].pos
-        a.pos.x = a.pos.x + 0.03 * (a.pos.x - q.x) / bestD
-        a.pos.y = a.pos.y + 0.03 * (a.pos.y - q.y) / bestD
+        a.pos.x = a.pos.x + 0.03 * ip.torusDelta(q.x, a.pos.x) / bestD
+        a.pos.y = a.pos.y + 0.03 * ip.torusDelta(q.y, a.pos.y) / bestD
     ip.wrapP(a.pos)
   of "WANDER":
     let a = addr loopAgent(ip, w[1])
@@ -404,8 +411,8 @@ proc execStmt(ip: var Interp, st: Stmt) =
         a.energy = a.energy + gain
       elif bestD < 4.0 * r:                    # chase
         let q = prey.agents[bestI].pos
-        a.pos.x = a.pos.x + 0.05 * (q.x - a.pos.x) / bestD
-        a.pos.y = a.pos.y + 0.05 * (q.y - a.pos.y) / bestD
+        a.pos.x = a.pos.x + 0.05 * ip.torusDelta(a.pos.x, q.x) / bestD
+        a.pos.y = a.pos.y + 0.05 * ip.torusDelta(a.pos.y, q.y) / bestD
         ip.wrapP(a.pos)
   of "GROW":                                 # GROW energy OF s BY 0.001
     let a = addr loopAgent(ip, w[3])

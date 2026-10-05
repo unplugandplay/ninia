@@ -180,6 +180,13 @@ proc distTorus(world: float64, a, b: Vec2): float64 =
   var dy = abs(a.y - b.y); if dy > world / 2: dy = world - dy
   sqrt(dx * dx + dy * dy)
 
+proc torusDelta(world: float64, fromPos, toPos: float64): float64 =
+  ## shortest signed delta on the torus — direction vectors must be
+  ## wrapped, not just distances
+  result = toPos - fromPos
+  if result > world / 2: result -= world
+  elif result < -world / 2: result += world
+
 proc wrapP(world: float64, p: var Vec2) =
   p.x = p.x - floor(p.x / world) * world
   p.y = p.y - floor(p.y / world) * world
@@ -212,8 +219,8 @@ proc repel(a: var AgentRec, others: seq[AgentRec], h: Grid, r, world: float64) =
     if d < bestD: bestD = d; bestI = k
   if bestI >= 0 and bestD < r and bestD > 1e-9:
     let q = others[bestI].pos
-    a.pos.x = a.pos.x + 0.03 * (a.pos.x - q.x) / bestD
-    a.pos.y = a.pos.y + 0.03 * (a.pos.y - q.y) / bestD
+    a.pos.x = a.pos.x + 0.03 * torusDelta(world, q.x, a.pos.x) / bestD
+    a.pos.y = a.pos.y + 0.03 * torusDelta(world, q.y, a.pos.y) / bestD
     wrapP(world, a.pos)
 
 proc hunt(a: var AgentRec, prey: var seq[AgentRec], h: Grid, r, gain,
@@ -232,8 +239,8 @@ proc hunt(a: var AgentRec, prey: var seq[AgentRec], h: Grid, r, gain,
       a.energy = a.energy + gain
     elif bestD < 4.0 * r:
       let q = prey[bestI].pos
-      a.pos.x = a.pos.x + 0.05 * (q.x - a.pos.x) / bestD
-      a.pos.y = a.pos.y + 0.05 * (q.y - a.pos.y) / bestD
+      a.pos.x = a.pos.x + 0.05 * torusDelta(world, a.pos.x, q.x) / bestD
+      a.pos.y = a.pos.y + 0.05 * torusDelta(world, a.pos.y, q.y) / bestD
       wrapP(world, a.pos)
 
 proc fieldAt(f: Arr2, world: float64, p: Vec2): float64 =

@@ -84,6 +84,14 @@ proc distTorus(m: Model, a, b: Vec2): float64 =
   var dy = abs(a.y - b.y); if dy > m.h / 2: dy = m.h - dy
   sqrt(dx * dx + dy * dy)
 
+proc torusDelta(m: Model, fromPos, toPos: float64,
+                world: float64): float64 =
+  ## shortest signed delta from `fromPos` to `toPos` on the torus —
+  ## direction vectors must be wrapped, not just distances
+  result = toPos - fromPos
+  if result > world / 2: result -= world
+  elif result < -world / 2: result += world
+
 proc wrapP(m: Model, p: var Vec2) =
   p.x = p.x - floor(p.x / m.w) * m.w       # torus wrap
   p.y = p.y - floor(p.y / m.h) * m.h
@@ -122,8 +130,8 @@ proc `step!`*(m: var Model, a: var Wolf, dt: float64) =
     a.energy = a.energy + wolfGain
   elif bestI >= 0 and bestD < 4.0 * fearR:      # chase
     let s = m.sheep[bestI].pos
-    a.pos.x += speed * 2 * (s.x - a.pos.x) / bestD
-    a.pos.y += speed * 2 * (s.y - a.pos.y) / bestD
+    a.pos.x += speed * 2 * m.torusDelta(a.pos.x, s.x, m.w) / bestD
+    a.pos.y += speed * 2 * m.torusDelta(a.pos.y, s.y, m.h) / bestD
     m.wrapP(a.pos)
   else:
     m.walk(a.pos, speed)
@@ -139,7 +147,8 @@ proc `step!`*(m: var Model, a: var Sheep, dt: float64, newborns: var seq[Sheep])
       let d = m.distTorus(a.pos, w)
       if d < fearR:
         threat = true
-        fx += a.pos.x - w.x; fy += a.pos.y - w.y
+        fx += m.torusDelta(w.x, a.pos.x, m.w)
+        fy += m.torusDelta(w.y, a.pos.y, m.h)
   if threat:
     let n = sqrt(fx * fx + fy * fy) + 1e-9
     a.pos.x += speed * 2 * fx / n

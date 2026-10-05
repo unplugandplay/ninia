@@ -35,11 +35,13 @@ proc view*(a: Arr2, rs, cs: Span): View =
   proc norm(s: Span, n: int): tuple[lo, hi, st: int] =
     var lo = s.start
     if lo < 0: lo += n
+    lo = clamp(lo, 0, n)
     var hi = s.stop
     if hi == till:
       hi = if s.step > 0: n else: -1
     elif hi < 0:
       hi += n
+    hi = clamp(hi, 0, n)
     (lo, hi, s.step)
   let (r0, r1, rst) = norm(rs, a.rows)
   let (c0, c1, cst) = norm(cs, a.cols)

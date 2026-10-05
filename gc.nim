@@ -142,6 +142,7 @@ proc collect*(g: Gc) =
   while cur != nil:
     let nxt = cur.next
     if cur.marked:
+      cur.gen = 1                     # survivors settle into old space
       prev = cur
     else:
       if prev == nil: g.head = nxt
@@ -149,7 +150,6 @@ proc collect*(g: Gc) =
       dec g.liveCount
       g.liveBytes -= hdrSize + cur.size
       inc g.freeCount
-      cur.gen = 1
       deallocShared(cast[pointer](cur))
     cur = nxt
 
