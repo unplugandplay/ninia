@@ -51,6 +51,7 @@ broadcasting.
 | 12 | **Ninia speak**: the sentence frontend (FLOW-MATIC, revised) | `speak.nim`, `sheep-and-fire.speak` | first program: fire + sheep migration + wolf hunts, in plain sentences |
 | 13 | user-defined verbs: `DEFINE VERB … END VERB` with `$` subjects | `speak.nim` | `GRAZE s` composes WANDER+GROW; the language extends itself |
 | 14 | Neumann (no-flux) boundaries: mirrored stencil diagonal | `pde.nim`, `heat-box.speak` | insulated box: MEAN temperature climbs 1.26 → 2.97, nothing drains |
+| 15 | **speakc**: sentences compiled to standalone Nim — no interpreter at runtime | `speakc.nim` | compiled worlds are bit-identical to the interpreter (same seed) |
 
 Run any rung:
 
@@ -65,6 +66,10 @@ The frontend has its own entrypoint — the whole simulation lives in a
 nim c -d:release -o:bin/speak speak.nim && ./bin/speak
 ./bin/speak heat-box.speak        # insulated box: Neumann boundaries
 ./bin/speak my-world.speak        # or any other script
+
+# or compile the world: .speak -> Nim -> native binary (identical results)
+nim c -d:release -o:bin/speakc speakc.nim && ./bin/speakc my-world.speak
+nim c -d:release -o:bin/my-world my_world_gen.nim && ./bin/my-world
 ```
 
 ## The load-bearing decisions taken so far
@@ -92,12 +97,12 @@ nim c -d:release -o:bin/speak speak.nim && ./bin/speak
 
 ## Next steps
 
-1. compile sentences, don't interpret them: the same templates emitted as Nim
-   codegen (the `fuse` path) — orchestration joins the compiled world
-2. multi-subject verbs (`$1`, `$2`) and verbs that return values
+1. verbs that return values (an expression layer over sentences)
+2. speakc emits `fuse2`-style codegen for field sentences (the interpreter
+   already lowers them through compiled kernels; the compiler can go further)
 3. fast-path stretch/stride fusion: teach `fuse2`/`gpuFuse` what `materialize`
-   knows about shape rules
+   knows about shape rules (needs a typed IR)
 4. generational GC + machine-stack scanning (replace the explicit root registry)
 5. Metal backend behind the same codegen (OpenCL is deprecated on macOS)
-6. wasm backend for the `.speak` runtime — the browser notebook ("ANYBODY
-   user" runs the world in a tab; see the sibling `nina-cobol` experiment)
+6. wasm backend for compiled worlds — the browser notebook ("ANYBODY user"
+   runs the world in a tab; see the sibling `nina-cobol` experiment)

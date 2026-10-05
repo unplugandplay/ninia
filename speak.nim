@@ -419,14 +419,21 @@ proc execStmt(ip: var Interp, st: Stmt) =
       echo &"t = {ip.t:5.1f} | ", parts.join(" | ")
   else:
     let vname = w[0].up
-    if vname in ip.verbs:                    # user-defined verb: $ = the subject
-      doAssert w.len == 2, "verb " & vname & " takes exactly one subject"
-      let subject = w[1]
+    if vname in ip.verbs:                    # user-defined verb; $ (or $1) = first
+      # subject, $2 = second, ... ; every $ in the template repeats subject 1
       for tmpl in ip.verbs[vname]:
         var newWords: seq[string]
         for t in tmpl:
-          if t == "$": newWords.add(subject)
-          else: newWords.add(t)
+          if t == "$" or t == "$1":
+            doAssert w.len >= 2, "verb " & vname & " needs a subject"
+            newWords.add(w[1])
+          elif t.startsWith("$") and t.len > 1 and t[1].isDigit:
+            let k = parseInt(t[1 ..^ 1])
+            doAssert k >= 1 and k <= w.len - 1,
+              "verb " & vname & " has no argument $" & $k
+            newWords.add(w[k])
+          else:
+            newWords.add(t)
         execStmt(ip, Stmt(words: newWords, section: st.section))
     else:
       raise newException(ValueError, "unknown sentence: " & lnjoin(w))

@@ -3,3 +3,5 @@ cache/
 .DS_Store
 *.o
 *.wasm
+*_gen.nim
+*.gen.nim
