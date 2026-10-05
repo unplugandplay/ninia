@@ -53,7 +53,8 @@ proc parseGc*(toks: seq[pde.Tok]): pde.PExpr =
         let arg = toks[pos[]].txt
         inc pos[]                # the argument ident
         inc pos[]                # ')'
-        pde.PExpr(k: peCall, fn: t.txt, arg: arg)
+        pde.PExpr(k: peCall, fn: t.txt,
+                  argX: pde.PExpr(k: peVar, name: arg))
       else:
         pde.PExpr(k: peVar, name: t.txt)
     of '(':
@@ -133,5 +134,16 @@ when isMainModule:
     g.unroot(head)
     g.collect()
     echo "after collect #2: ", g.stats(), "  (chain dropped)"
+
+  block generations:
+    # nursery churn: 100k young boxes die in a minor collection, one
+    # rooted survivor is promoted to old space
+    for i in 1 .. 100_000:
+      discard box(g, i)
+    var keep = box(g, 42)
+    g.root(keep)
+    g.collectMinor()
+    echo "after minor:      ", g.stats(), "  (1 survivor promoted)"
+    g.unroot(keep)
     g.collect()
-    echo "final:             ", g.stats()
+    echo "after major:      ", g.stats()

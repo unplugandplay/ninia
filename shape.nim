@@ -135,6 +135,11 @@ proc `-`*(l, r: Node2): Node2 = binOp(l, r, proc(x, y: float64): float64 = x - y
 proc `*`*(l, r: Node2): Node2 = binOp(l, r, proc(x, y: float64): float64 = x * y)
 proc `/`*(l, r: Node2): Node2 = binOp(l, r, proc(x, y: float64): float64 = x / y)
 proc sin*(t: Node2): Node2 = Node2(k: nsMap, f: math.sin, u: t)
+proc cos*(t: Node2): Node2 = Node2(k: nsMap, f: math.cos, u: t)
+proc sqrt*(t: Node2): Node2 = Node2(k: nsMap, f: math.sqrt, u: t)
+proc exp*(t: Node2): Node2 = Node2(k: nsMap, f: math.exp, u: t)
+proc absF64(x: float64): float64 = abs(x)
+proc abs*(t: Node2): Node2 = Node2(k: nsMap, f: absF64, u: t)
 
 # ---------------------------------------------- rank-2 fast path: fuse2 ---
 # Compile-time codegen, like the seed's `fuse` but for 2-D: hoist every
@@ -173,8 +178,9 @@ macro fuse2*(expr: untyped): untyped =
       tmp
     of nnkCharLit..nnkFloat128Lit:
       n
-    of nnkInfix, nnkPrefix, nnkCall, nnkCommand:
-      for j in 1 ..< n.len:
+    of nnkInfix, nnkPrefix, nnkCall, nnkCommand, nnkPar:
+      let start = if n.kind == nnkPar: 0 else: 1
+      for j in start ..< n.len:
         n[j] = rewrite(n[j])
       n
     else:

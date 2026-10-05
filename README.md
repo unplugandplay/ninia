@@ -52,6 +52,8 @@ broadcasting.
 | 13 | user-defined verbs: `DEFINE VERB … END VERB` with `$` subjects | `speak.nim` | `GRAZE s` composes WANDER+GROW; the language extends itself |
 | 14 | Neumann (no-flux) boundaries: mirrored stencil diagonal | `pde.nim`, `heat-box.speak` | insulated box: MEAN temperature climbs 1.26 → 2.97, nothing drains |
 | 15 | **speakc**: sentences compiled to standalone Nim — no interpreter at runtime | `speakc.nim` | compiled worlds are bit-identical to the interpreter (same seed) |
+| 16 | `SET <field> TO <math>`: the math tier as a sentence | `speak.nim`, `speakc.nim`, `cooling-box.speak` | interpreter walks the tree, compiler emits `fuse2` codegen — identical trajectories |
+| 17 | generational GC: nursery sweep, promotion, minor/major counts | `gc.nim` | 100k young boxes die in a minor; survivor promoted; major finishes |
 
 Run any rung:
 
@@ -98,11 +100,14 @@ nim c -d:release -o:bin/my-world my_world_gen.nim && ./bin/my-world
 ## Next steps
 
 1. verbs that return values (an expression layer over sentences)
-2. speakc emits `fuse2`-style codegen for field sentences (the interpreter
-   already lowers them through compiled kernels; the compiler can go further)
-3. fast-path stretch/stride fusion: teach `fuse2`/`gpuFuse` what `materialize`
+2. fast-path stretch/stride fusion: teach `fuse2`/`gpuFuse` what `materialize`
    knows about shape rules (needs a typed IR)
-4. generational GC + machine-stack scanning (replace the explicit root registry)
-5. Metal backend behind the same codegen (OpenCL is deprecated on macOS)
-6. wasm backend for compiled worlds — the browser notebook ("ANYBODY user"
-   runs the world in a tab; see the sibling `nina-cobol` experiment)
+3. machine-stack scanning for the GC (replace the explicit root registry;
+   the generational nursery is done)
+4. Metal backend behind the same codegen (OpenCL is deprecated on macOS)
+5. wasm backend for compiled worlds — the browser notebook. Probe result:
+   Nim C for wasm32 generates cleanly (`nim c -c --cpu:wasm32 --os:linux`);
+   the only blocker is toolchain — emscripten is installed but needs an
+   LLVM with the wasm backend (`brew install llvm` + LLVM_ROOT in
+   ~/.emscripten, or a wasi-sdk). See the sibling `nina-cobol` experiment
+   for the hand-rolled-wasm alternative.

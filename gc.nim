@@ -20,12 +20,15 @@ type
     freeCount*: int
     liveCount*: int
     liveBytes*: int
-    collections*: int
+    minorCount*: int
+    majorCount*: int
+    promoted*: int              # nursery survivors promoted to old space
 
   TraceFn* = proc(g: Gc, payload: pointer) {.nimcall.}
 
   GcHeader = object
     marked: bool
+    gen: uint8                  # 0 = nursery, 1 = old space
     size: int                   # payload bytes
     trace: TraceFn              # nil = leaf object
     next: ptr GcHeader
@@ -85,8 +88,49 @@ proc unroot*[T](g: Gc, p: ptr T) =
 
 # --------------------------------------------------------- mark & sweep ------
 
+proc markFromHeader(g: Gc, hdr: ptr GcHeader) =
+  if hdr.marked: return
+  hdr.marked = true
+  if hdr.trace != nil:
+    hdr.trace(g, cast[pointer](cast[uint](hdr) + hdrSize.uint))
+
+proc collectMinor*(g: Gc) =
+  ## nursery collection: old objects act as implicit roots (this seed has
+  ## no write barrier), young garbage dies, young survivors are promoted
+  inc g.minorCount
+  var h = g.head
+  while h != nil:
+    h.marked = false
+    h = h.next
+  h = g.head
+  while h != nil:
+    if h.gen == 1:
+      markFromHeader(g, h)
+    h = h.next
+  for r in g.roots:
+    markPointer(g, r)
+  var prev: ptr GcHeader = nil
+  var cur = g.head
+  while cur != nil:
+    let nxt = cur.next
+    if cur.gen == 1:
+      prev = cur
+    elif cur.marked:
+      cur.gen = 1                     # survived the nursery -> old space
+      inc g.promoted
+      prev = cur
+    else:
+      if prev == nil: g.head = nxt
+      else: prev.next = nxt
+      dec g.liveCount
+      g.liveBytes -= hdrSize + cur.size
+      inc g.freeCount
+      deallocShared(cast[pointer](cur))
+    cur = nxt
+
 proc collect*(g: Gc) =
-  inc g.collections
+  ## full mark-sweep; survivors settle into old space
+  inc g.majorCount
   var h = g.head
   while h != nil:
     h.marked = false
@@ -105,8 +149,9 @@ proc collect*(g: Gc) =
       dec g.liveCount
       g.liveBytes -= hdrSize + cur.size
       inc g.freeCount
+      cur.gen = 1
       deallocShared(cast[pointer](cur))
     cur = nxt
 
 proc stats*(g: Gc): string =
-  result = &"allocs={g.allocCount} freed={g.freeCount} live={g.liveCount} liveBytes={g.liveBytes} collections={g.collections}"
+  result = &"allocs={g.allocCount} freed={g.freeCount} live={g.liveCount} liveBytes={g.liveBytes} minors={g.minorCount} majors={g.majorCount} promoted={g.promoted}"

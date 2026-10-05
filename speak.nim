@@ -230,6 +230,35 @@ proc stepFields(ip: var Interp) =
 
 # ----------------------------------------------------------- the sentences ---
 
+proc exprToNode(ip: Interp, e: PExpr): Node2 =
+  ## lower a math expression onto the broadcast tree: field names become
+  ## sources, NUMBERs become scalars — the SET sentence's front half
+  case e.k
+  of peNum:
+    toNode2(e.v)
+  of peVar:
+    if e.name in ip.fields: toNode2(ip.fields[e.name].data)
+    elif e.name in ip.numbers: toNode2(ip.numbers[e.name])
+    else: raise newException(ValueError, "unknown identifier in SET: " & e.name)
+  of peCall:
+    let u = ip.exprToNode(e.argX)
+    case e.fn.toLowerAscii
+    of "sin": sin(u)
+    of "cos": cos(u)
+    of "sqrt": sqrt(u)
+    of "exp": exp(u)
+    of "abs": abs(u)
+    else: raise newException(ValueError, "unknown function in SET: " & e.fn)
+  of peBin:
+    let l = ip.exprToNode(e.l)
+    let r = ip.exprToNode(e.r)
+    case e.op
+    of '+': l + r
+    of '-': l - r
+    of '*': l * r
+    of '/': l / r
+    else: raise newException(ValueError, "bad op in SET")
+
 proc lnjoin(w: seq[string]): string = w.join(" ")
 
 proc loopAgent(ip: Interp, v: string): var AgentRec =
@@ -300,6 +329,12 @@ proc execStmt(ip: var Interp, st: Stmt) =
     f.srcs.add((spot.x, spot.y, ip.numf(w[5]), ip.numf(w[3])))
   of "STEP":                                 # STEP THE FIELD
     stepFields(ip)
+  of "SET":                                  # SET <field> TO <math>
+    let f = ip.fieldOf(w[1])
+    doAssert w[2].up == "TO", "SET <field> TO <math expression>"
+    let raw = w[3 ..^ 1].join(" ")
+    let tree = ip.exprToNode(parsePDE("du/dt = " & raw))
+    materializeInto(f.data, tree)
   of "FOR":                                  # FOR EACH s IN sheep DO ... REPEAT
     let vname = w[2]
     let sp = ip.speciesOf(w[4])
@@ -412,6 +447,23 @@ proc execStmt(ip: var Interp, st: Stmt) =
           var c = 0
           for a in sp.agents:
             if a.alive: s += ip.fieldAt(f, a.pos); c.inc
+          value = fmt"{s / max(1.0, float64(c)):6.3f}"
+        elif it.len == 3 and it[0].up == "MAX" and it[1].up == "OF":
+          let f = ip.fieldOf(it[2])
+          var m = -Inf
+          for k in 0 ..< f.nx * f.ny: m = max(m, f.data.data[k])
+          value = fmt"{m:6.3f}"
+        elif it.len == 3 and it[0].up == "MIN" and it[1].up == "OF":
+          let f = ip.fieldOf(it[2])
+          var m = Inf
+          for k in 0 ..< f.nx * f.ny: m = min(m, f.data.data[k])
+          value = fmt"{m:6.3f}"
+        elif it.len == 3 and it[0].up == "ENERGY" and it[1].up == "OF":
+          let sp = ip.speciesOf(it[2])
+          var s = 0.0
+          var c = 0
+          for a in sp.agents:
+            if a.alive: s += a.energy; c.inc
           value = fmt"{s / max(1.0, float64(c)):6.3f}"
         else:
           raise newException(ValueError, "unknown report item: " & label)

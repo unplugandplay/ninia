@@ -22,7 +22,7 @@ type
       name*: string
     of peCall:
       fn*: string
-      arg*: string
+      argX*: PExpr
     of peBin:
       op*: char
       l*, r*: PExpr
@@ -31,7 +31,7 @@ proc `$`*(e: PExpr): string =
   case e.k
   of peNum: fmt"{e.v:g}"
   of peVar: e.name
-  of peCall: e.fn & "(" & e.arg & ")"
+  of peCall: e.fn & "(" & $e.argX & ")"
   of peBin: "(" & $e.l & " " & e.op & " " & $e.r & ")"
 
 # --------------------------------------------------------- the string DSL ---
@@ -73,13 +73,11 @@ proc parseFactor(c: Cursor): PExpr =
   of 'i':
     inc c.pos
     if c.pos < c.toks.len and c.toks[c.pos].kind == '(':
-      inc c.pos                              # call: ident ( ident )
-      let arg = c.toks[c.pos]
-      doAssert arg.kind == 'i', "call argument must be a variable"
-      inc c.pos
+      inc c.pos                              # call: ident ( expression )
+      let argE = parseExpr(c)
       doAssert c.toks[c.pos].kind == ')', "expected )"
       inc c.pos
-      result = PExpr(k: peCall, fn: t.txt, arg: arg.txt)
+      result = PExpr(k: peCall, fn: t.txt, argX: argE)
     else:
       result = PExpr(k: peVar, name: t.txt)
   of '(':
@@ -180,8 +178,10 @@ proc extractCoeffs(e: PExpr, sym: Table[string, float64], coeff: float64,
     if e.name == dep: res.uC += coeff
     else: res.c0 += coeff * evalConst(e, sym)
   of peCall:
-    if e.fn == "lap" and e.arg == dep: res.lapC += coeff
-    else: raise newException(ValueError, "unknown function: " & e.fn)
+    if e.fn == "lap" and e.argX.k == peVar and e.argX.name == dep:
+      res.lapC += coeff
+    else:
+      raise newException(ValueError, "unknown function or non-plain argument: " & e.fn)
   of peBin:
     case e.op
     of '+': extractCoeffs(e.l, sym, coeff, res, dep); extractCoeffs(e.r, sym, coeff, res, dep)

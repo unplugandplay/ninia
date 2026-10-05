@@ -115,6 +115,12 @@ macro gpuFuse*(expr: untyped): untyped =
       $n.floatVal & "f"
     of nnkIntLit..nnkInt64Lit:
       $n.intVal
+    of nnkPar:
+      if n.len == 1: core(n[0])
+      else:
+        var ps: seq[string]
+        for k in 0 ..< n.len: ps.add(core(n[k]))
+        "(" & ps.join(", ") & ")"
     of nnkInfix:
       "(" & core(n[1]) & " " & $n[0] & " " & core(n[2]) & ")"
     of nnkPrefix:

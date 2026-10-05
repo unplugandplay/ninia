@@ -5,3 +5,5 @@ cache/
 *.wasm
 *_gen.nim
 *.gen.nim
+wc/
+*.js

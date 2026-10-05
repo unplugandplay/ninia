@@ -10,6 +10,7 @@
 #   nim c -d:release world.gen.nim    -> the world, compiled
 
 import std/[strformat, strutils, math, tables, sequtils, os]
+import pde
 
 type
   Stmt = object
@@ -247,6 +248,23 @@ proc countOf(ags: seq[AgentRec]): int =
 proc meanOf(f: Arr2): float64 =
   f.total / float64(f.rows * f.cols)
 
+proc maxOf(f: Arr2): float64 =
+  var m = -Inf
+  for k in 0 ..< f.rows * f.cols: m = max(m, f.data[k])
+  m
+
+proc minOf(f: Arr2): float64 =
+  var m = Inf
+  for k in 0 ..< f.rows * f.cols: m = min(m, f.data[k])
+  m
+
+proc meanEnergy(ags: seq[AgentRec]): float64 =
+  var s = 0.0
+  var c = 0
+  for a in ags:
+    if a.alive: s += a.energy; c.inc
+  s / max(1.0, float64(c))
+
 proc meanAt(f: Arr2, ags: seq[AgentRec], world: float64): float64 =
   var s = 0.0
   var c = 0
@@ -334,6 +352,25 @@ proc translate(c: var Compiler, st: Stmt, subj: var Table[string, SubjInfo],
     c.em(&"{info.nb}.add(AgentRec(id: -1, pos: {info.acc}.pos, " &
           &"energy: {info.acc}.energy, alive: true))")
     c.outu()
+  of "SET":
+    # the math tier, compiled: SET lowers to fuse2 — one fused loop, no tree
+    doAssert w[2].up == "TO", "SET <field> TO <math expression>"
+    var parts: seq[string]
+    for t in pde.tokenize(w[3 ..^ 1].join(" ")):
+      case t.kind
+      of 'i':
+        var isNum = false
+        for n in c.numbers:
+          if n.name == t.txt:
+            parts.add($n.val)
+            isNum = true
+        if not isNum:
+          if t.txt notin c.fields:
+            raise newException(ValueError, "unknown identifier in SET: " & t.txt)
+          parts.add(t.txt)
+      else:
+        parts.add(t.txt)
+    c.em(&"materializeInto({w[1]}, fuse2({parts.join(\" \")}))")
   of "REAP":
     c.em(&"{w[1]} = {w[1]}.filterIt(it.alive and it.energy >= {c.numTok(w[3])})")
   of "REPORT":
@@ -351,6 +388,12 @@ proc translate(c: var Compiler, st: Stmt, subj: var Table[string, SubjInfo],
         fmtParts.add(&" | {label} = {{meanOf({it[1]}):6.3f}}")
       elif it.len == 3 and it[1].up == "AT":
         fmtParts.add(&" | {label} = {{meanAt({it[0]}, {it[2]}, WORLD):6.3f}}")
+      elif it.len == 3 and it[0].up == "MAX" and it[1].up == "OF":
+        fmtParts.add(&" | {label} = {{maxOf({it[2]}):6.3f}}")
+      elif it.len == 3 and it[0].up == "MIN" and it[1].up == "OF":
+        fmtParts.add(&" | {label} = {{minOf({it[2]}):6.3f}}")
+      elif it.len == 3 and it[0].up == "ENERGY" and it[1].up == "OF":
+        fmtParts.add(&" | {label} = {{meanEnergy({it[2]}):6.3f}}")
       else:
         raise newException(ValueError, "unknown report item: " & label)
     c.outd(&"if stepNo mod {n} == 0:")
