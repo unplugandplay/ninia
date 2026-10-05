@@ -15,6 +15,12 @@ fire IS SPOT AT 0.25, 0.25
 sheep IS SPECIES WITH energy
 wolves IS SPECIES WITH energy
 
+-- VERBS --
+DEFINE VERB graze AS
+    WANDER $
+    GROW energy OF $ BY 0.02
+END VERB
+
 -- SETUP --
 MAKE 40 sheep AT RANDOM WITH energy 1.5
 MAKE 4 wolves AT RANDOM WITH energy 1.5
@@ -27,8 +33,7 @@ STEP THE FIELD
 FOR EACH s IN sheep DO
     MOVE s AWAY FROM GRADIENT OF temperature
     MOVE s AWAY FROM wolves WITHIN 0.08
-    WANDER s
-    GROW energy OF s BY 0.02
+    GRAZE s
     SPLIT s WHEN energy ABOVE 2.5
 REPEAT
 FOR EACH w IN wolves DO

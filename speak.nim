@@ -27,10 +27,13 @@ type
     energy: float64
     alive: bool
 
+  BcKind = enum bcNone, bcDirichlet, bcNeumann
+
   FieldObj = ref object
     name: string
     data: Arr2
     nx, ny: int
+    pend: PExpr              # parsed equation; system built after SETUP
     solved: bool
     A: CSR
     lapC: float64
@@ -38,7 +41,7 @@ type
     x, y: seq[float64]
     ru: Arr2
     srcs: seq[tuple[x, y, r, v: float64]]
-    bcZero: bool
+    bc: BcKind
 
   SpeciesObj = ref object
     name: string
@@ -70,6 +73,7 @@ type
     spots: Table[string, tuple[x, y: float64]]
     vars: Table[string, LoopVar]
     newborns: seq[tuple[sp: SpeciesObj, a: AgentRec]]
+    verbs: Table[string, seq[seq[string]]]
     body: seq[Stmt]
 
 # ------------------------------------------------------------ tiny helpers ---
@@ -137,6 +141,8 @@ proc near(h: Grid, p: Vec2, outIdx: var seq[int]) =
 
 # --------------------------------------------------------------- parsing -----
 
+proc parseVerbBody(lines: seq[string], i: var int): seq[Stmt]
+
 proc parseBlock(lines: seq[string], i: var int, section: var string,
                 inLoop: bool): seq[Stmt] =
   while i < lines.len:
@@ -154,6 +160,8 @@ proc parseBlock(lines: seq[string], i: var int, section: var string,
       if inLoop: return
       raise newException(ValueError, "REPEAT without FOR EACH")
     var st = Stmt(words: words, section: section)
+    if words[0].up == "DEFINE":
+      st.body = parseVerbBody(lines, i)
     if words[0].up == "FOR":
       if section != "SIMULATION":
         raise newException(ValueError, "FOR EACH only allowed in SIMULATION")
@@ -161,6 +169,19 @@ proc parseBlock(lines: seq[string], i: var int, section: var string,
     result.add(st)
   if inLoop:
     raise newException(ValueError, "missing REPEAT")
+
+proc parseVerbBody(lines: seq[string], i: var int): seq[Stmt] =
+  while i < lines.len:
+    var ln = lines[i]
+    i.inc
+    let cut = ln.find("#")
+    if cut >= 0: ln = ln[0 ..< cut]
+    ln = ln.strip
+    if ln.len == 0: continue
+    let words = ln.split().filterIt(it.len > 0)
+    if words[0].up == "END" and words[1].up == "VERB": return
+    result.add(Stmt(words: words))
+  raise newException(ValueError, "missing END VERB")
 
 # ------------------------------------------------------------- the kernels ---
 
@@ -205,7 +226,7 @@ proc stepFields(ip: var Interp) =
           f.data[i, j] = f.data[i, j] + du
       for src in f.srcs:
         materializeInto(regionView(ip, f, src.x, src.y, src.r), src.v)
-      if f.bcZero: zeroRing(ip, f)
+      if f.bc == bcDirichlet: zeroRing(ip, f)
 
 # ----------------------------------------------------------- the sentences ---
 
@@ -261,19 +282,18 @@ proc execStmt(ip: var Interp, st: Stmt) =
     let lhs = parts[0].strip
     doAssert lhs.startsWith("d") and lhs.endsWith("/dt"), "SOLVE expects d<field>/dt"
     let fname = lhs[1 ..^ 4]
-    let sym = ip.numbers
-    let sys = discretize(parsePDE(raw, fname), ip.nx, ip.ny,
-                         ip.world / float64(ip.nx - 1), sym, fname)
     let f = ip.fieldOf(fname)
-    f.solved = true
-    f.A = sys.A
-    f.lapC = sys.lapC
-    f.react = sys.react
-    f.x = newSeq[float64](sys.A.n)
-    f.y = newSeq[float64](sys.A.n)
-    f.ru = newArr2(f.nx, f.ny)
-  of "APPLY":                                # APPLY BOUNDARY zero TO temperature
-    ip.fieldOf(w[^1]).bcZero = true
+    f.pend = parsePDE(raw, fname)
+  of "APPLY":                                # APPLY BOUNDARY zero|wall TO temperature
+    case w[2].up
+    of "ZERO": ip.fieldOf(w[^1]).bc = bcDirichlet
+    of "WALL": ip.fieldOf(w[^1]).bc = bcNeumann
+    else: raise newException(ValueError, "unknown boundary kind: " & w[2] & " (zero or wall)")
+  of "DEFINE":                               # DEFINE VERB name AS ... END VERB
+    doAssert w[1].up == "VERB", "only DEFINE VERB is supported"
+    var tmpl: seq[seq[string]]
+    for b in st.body: tmpl.add(b.words)
+    ip.verbs[w[2].up] = tmpl
   of "HOLD":                                 # HOLD temperature AT 5.0 WITHIN 0.3 OF fire
     let f = ip.fieldOf(w[1])
     let spot = ip.spots[w[7]]
@@ -398,9 +418,36 @@ proc execStmt(ip: var Interp, st: Stmt) =
         parts.add(label & " = " & value)
       echo &"t = {ip.t:5.1f} | ", parts.join(" | ")
   else:
-    raise newException(ValueError, "unknown sentence: " & lnjoin(w))
+    let vname = w[0].up
+    if vname in ip.verbs:                    # user-defined verb: $ = the subject
+      doAssert w.len == 2, "verb " & vname & " takes exactly one subject"
+      let subject = w[1]
+      for tmpl in ip.verbs[vname]:
+        var newWords: seq[string]
+        for t in tmpl:
+          if t == "$": newWords.add(subject)
+          else: newWords.add(t)
+        execStmt(ip, Stmt(words: newWords, section: st.section))
+    else:
+      raise newException(ValueError, "unknown sentence: " & lnjoin(w))
 
 # ------------------------------------------------------------------ runner ---
+
+proc buildSystems(ip: var Interp) =
+  ## systems are built after SETUP so APPLY BOUNDARY (zero|wall) is known:
+  ## the boundary kind changes the sparse matrix itself (Neumann mirrors)
+  let dx = ip.world / float64(ip.nx - 1)
+  for f in ip.fields.values:
+    if f.pend != nil and not f.solved:
+      let sys = discretize(f.pend, ip.nx, ip.ny, dx, ip.numbers, f.name,
+                           neumann = f.bc == bcNeumann)
+      f.A = sys.A
+      f.lapC = sys.lapC
+      f.react = sys.react
+      f.x = newSeq[float64](sys.A.n)
+      f.y = newSeq[float64](sys.A.n)
+      f.ru = newArr2(f.nx, f.ny)
+      f.solved = true
 
 proc run(src: string) =
   var ip: Interp
@@ -413,6 +460,7 @@ proc run(src: string) =
       ip.body.add(st)
     else:
       execStmt(ip, st)
+  buildSystems(ip)
   doAssert ip.nx > 0 and ip.world > 0, "CONFIG must set GRID and WORLD first"
   doAssert ip.dt > 0, "CONFIG must set TIME FROM .. TO .. BY .."
   let steps = int(round(ip.tMax / ip.dt))

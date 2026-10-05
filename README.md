@@ -49,6 +49,8 @@ broadcasting.
 | 10 | GPU: same AST → OpenCL kernel (codegen → string backend) | `opencl.nim`, `gpu.nim` | Apple M1 GPU == CPU within 2.8e-7; 3.8x faster incl. transfers |
 | 11 | agents × PDE hybrid | `hybrid.nim` | sheep migrate to cold: heat@sheep/heat@domain = 1.25 → 0.13 |
 | 12 | **Ninia speak**: the sentence frontend (FLOW-MATIC, revised) | `speak.nim`, `sheep-and-fire.speak` | first program: fire + sheep migration + wolf hunts, in plain sentences |
+| 13 | user-defined verbs: `DEFINE VERB … END VERB` with `$` subjects | `speak.nim` | `GRAZE s` composes WANDER+GROW; the language extends itself |
+| 14 | Neumann (no-flux) boundaries: mirrored stencil diagonal | `pde.nim`, `heat-box.speak` | insulated box: MEAN temperature climbs 1.26 → 2.97, nothing drains |
 
 Run any rung:
 
@@ -61,6 +63,7 @@ The frontend has its own entrypoint — the whole simulation lives in a
 
 ```bash
 nim c -d:release -o:bin/speak speak.nim && ./bin/speak
+./bin/speak heat-box.speak        # insulated box: Neumann boundaries
 ./bin/speak my-world.speak        # or any other script
 ```
 
@@ -89,16 +92,12 @@ nim c -d:release -o:bin/speak speak.nim && ./bin/speak
 
 ## Next steps
 
-1. user-defined verbs in Ninia speak (LDPL's `CREATE STATEMENT` trick: sentence
-   templates with `$` placeholders bound to procedures — the language extends
-   itself)
-2. compile sentences, don't interpret them: the same templates emitted as Nim
+1. compile sentences, don't interpret them: the same templates emitted as Nim
    codegen (the `fuse` path) — orchestration joins the compiled world
+2. multi-subject verbs (`$1`, `$2`) and verbs that return values
 3. fast-path stretch/stride fusion: teach `fuse2`/`gpuFuse` what `materialize`
    knows about shape rules
-4. Neumann (no-flux) BCs in `laplacianCSR` (mirror the missing stencil entry
-   into the diagonal) — currently Dirichlet only
-5. generational GC + machine-stack scanning (replace the explicit root registry)
-6. Metal backend behind the same codegen (OpenCL is deprecated on macOS)
-7. wasm backend for the `.speak` runtime — the browser notebook ("ANYBODY
-   user" runs the world in a tab; see the sibling `ldpl-wasm` experiment)
+4. generational GC + machine-stack scanning (replace the explicit root registry)
+5. Metal backend behind the same codegen (OpenCL is deprecated on macOS)
+6. wasm backend for the `.speak` runtime — the browser notebook ("ANYBODY
+   user" runs the world in a tab; see the sibling `nina-cobol` experiment)

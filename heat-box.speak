@@ -1,0 +1,23 @@
+# heat-box.speak — an insulated box: Neumann (no-flux) boundaries.
+# The stove keeps injecting heat; the walls let none escape, so MEAN
+# temperature climbs without plateau — energy is conserved plus source.
+
+-- CONFIG --
+GRID IS 33 BY 33
+WORLD IS 2.0 WIDE
+TIME FROM 0 TO 10 BY 0.1
+SEED IS 3
+
+-- DATA --
+temperature IS FIELD
+alpha IS NUMBER WITH VALUE 0.05
+stove IS SPOT AT 1.0, 1.0
+
+-- SETUP --
+SOLVE dtemperature/dt = alpha * lap(temperature)
+APPLY BOUNDARY wall TO temperature
+HOLD temperature AT 5.0 WITHIN 0.2 OF stove
+
+-- SIMULATION --
+STEP THE FIELD
+REPORT MEAN temperature EVERY 20

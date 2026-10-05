@@ -218,7 +218,8 @@ proc matvec*(A: CSR, x: seq[float64], y: var seq[float64]) =
 
 # ---------------------------------------------- assemble the heat operator ---
 
-proc laplacianCSR*(nx, ny: int, dx: float64, cLap, cU: float64): CSR =
+proc laplacianCSR*(nx, ny: int, dx: float64, cLap, cU: float64,
+                   neumann = false): CSR =
   let iw = nx - 2
   let ih = ny - 2
   let n = iw * ih
@@ -230,23 +231,29 @@ proc laplacianCSR*(nx, ny: int, dx: float64, cLap, cU: float64): CSR =
     for i in 1 ..< nx - 1:
       let k = (i - 1) + (j - 1) * iw
       rowPtr[k] = vals.len
-      # 5-point stencil; boundary neighbors are Dirichlet-0 -> no entry
+      # 5-point stencil. Dirichlet-0: boundary neighbors contribute nothing.
+      # Neumann (no-flux): the missing neighbor is mirrored onto the diagonal.
+      var diag = cLap * (-4.0 * inv) + cU
       if i > 1:     colIdx.add(k - 1);      vals.add(cLap * inv)
+      elif neumann: diag += cLap * inv
       if i < nx - 2: colIdx.add(k + 1);     vals.add(cLap * inv)
+      elif neumann: diag += cLap * inv
       if j > 1:     colIdx.add(k - iw);     vals.add(cLap * inv)
+      elif neumann: diag += cLap * inv
       if j < ny - 2: colIdx.add(k + iw);    vals.add(cLap * inv)
-      colIdx.add(k); vals.add(cLap * (-4.0 * inv) + cU)
+      elif neumann: diag += cLap * inv
+      colIdx.add(k); vals.add(diag)
   rowPtr[n] = vals.len
   CSR(n: n, rowPtr: rowPtr, colIdx: colIdx, vals: vals)
 
 proc discretize*(pde: PExpr, nx, ny: int, dx: float64,
                  sym: Table[string, float64] = initTable[string, float64](),
-                 dep = "u"): tuple[A: CSR, react: proc(u: Node2): Node2, lapC: float64] =
+                 dep = "u", neumann = false): tuple[A: CSR, react: proc(u: Node2): Node2, lapC: float64] =
   var co: Coeffs
   extractCoeffs(pde, sym, 1.0, co, dep)
   if co.c0 != 0.0:
     raise newException(ValueError, "constant source terms not supported yet: " & $co.c0)
-  (laplacianCSR(nx, ny, dx, co.lapC, co.uC), co.react, co.lapC)
+  (laplacianCSR(nx, ny, dx, co.lapC, co.uC, neumann), co.react, co.lapC)
 
 # ----------------------------------------------------- the running solver ---
 
