@@ -4,11 +4,11 @@ Stage 1 of the plan: ~200 lines that make `u + sin(v*u) - 2.0` run as
 **one loop over contiguous float64 memory with zero temporary arrays**.
 
 ```bash
-nim c -d:release -o:bin/runes78 ninia.nim && ./bin/runes78
+nim c -d:release -o:bin/ninia ninia.nim && ./bin/ninia
 ```
 
 To *see* the fused loop in generated C: `nim c -c --nimcache:cache ninia.nim`,
-then open `cache/runes78.c` and search for `for (i = 0; i < outp.len; ...)`.
+then open `cache/@mninia.nim.c` and search for `for (i = 0; i < outp.len; ...)`.
 
 ## What's inside (`ninia.nim`)
 
