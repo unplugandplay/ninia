@@ -1,16 +1,16 @@
-# nina-78 — the seed of a simulation language
+# Ninia — a simulation language grown on Nim
 
 Stage 1 of the plan: ~200 lines that make `u + sin(v*u) - 2.0` run as
 **one loop over contiguous float64 memory with zero temporary arrays**.
 
 ```bash
-nim c -d:release -o:bin/runes78 runes78.nim && ./bin/runes78
+nim c -d:release -o:bin/runes78 ninia.nim && ./bin/runes78
 ```
 
-To *see* the fused loop in generated C: `nim c -c --nimcache:cache runes78.nim`,
+To *see* the fused loop in generated C: `nim c -c --nimcache:cache ninia.nim`,
 then open `cache/runes78.c` and search for `for (i = 0; i < outp.len; ...)`.
 
-## What's inside (`runes78.nim`)
+## What's inside (`ninia.nim`)
 
 | Piece | Role | Julia counterpart |
 |---|---|---|
@@ -36,7 +36,7 @@ broadcasting.
 
 | # | Rung | File | Proven by |
 |---|---|---|---|
-| seed | fused broadcasting, 1 pass, 0 temps (codegen + tree) | `runes78.nim` | beats naive 3-pass; fused loop visible in generated C |
+| seed | fused broadcasting, 1 pass, 0 temps (codegen + tree) | `ninia.nim` | beats naive 3-pass; fused loop visible in generated C |
 | 1 | 2-D, column-major, stretch/row/col shape rules | `shape.nim` | `(3,1)+(1,4)->(3,4)`, mismatch caught |
 | 2 | strided borrowed views + write-through (`@view`) | `views.nim` | interior scale + Dirichlet ring, zero copies |
 | 3 | user-type opt-in protocol (units join fusion) | `protocol.nim` | `MeterArr` fuses through the same core, units propagate |
@@ -48,11 +48,20 @@ broadcasting.
 | 9 | reaction terms: `u*(1-u)` → broadcast tree | `pde.nim` | Fisher-KPP wave: cells>0.5 sweep 0→1293, total 0.12→0.35 |
 | 10 | GPU: same AST → OpenCL kernel (codegen → string backend) | `opencl.nim`, `gpu.nim` | Apple M1 GPU == CPU within 2.8e-7; 3.8x faster incl. transfers |
 | 11 | agents × PDE hybrid | `hybrid.nim` | sheep migrate to cold: heat@sheep/heat@domain = 1.25 → 0.13 |
+| 12 | **Ninia speak**: the sentence frontend (FLOW-MATIC, revised) | `speak.nim`, `sheep-and-fire.speak` | first program: fire + sheep migration + wolf hunts, in plain sentences |
 
 Run any rung:
 
 ```bash
 nim c -d:release -o:bin/<name> <name>.nim && ./bin/<name>
+```
+
+The frontend has its own entrypoint — the whole simulation lives in a
+`.speak` script (see `sheep-and-fire.speak`):
+
+```bash
+nim c -d:release -o:bin/speak speak.nim && ./bin/speak
+./bin/speak my-world.speak        # or any other script
 ```
 
 ## The load-bearing decisions taken so far
@@ -72,20 +81,24 @@ nim c -d:release -o:bin/<name> <name>.nim && ./bin/<name>
   descriptors mark children; the seed uses an explicit root registry where a
   real runtime scans task stacks (Julia's collector does exactly that).
   Kernels stay isbits/manual — the GC never touches the hot path.
+- **two-tier frontend grammar** (the FLOW-MATIC lesson, revised): plain-English
+  *sentences* for orchestration and declarations, compact *math expressions*
+  for numerics. One sentence = one kernel; no verb ever loops over elements —
+  field expressions are atomic and lower to fused code. The interpreter only
+  walks orchestration; the math is never interpreted.
 
 ## Next steps
 
-1. fast-path stretch/stride fusion: teach `fuse2`/`gpuFuse` what `materialize`
-   knows about shape rules (macro can't see types — needs a typed IR or
-   compile-time reflection)
-2. Neumann (no-flux) BCs in `laplacianCSR` (mirror the missing stencil entry
+1. user-defined verbs in Ninia speak (LDPL's `CREATE STATEMENT` trick: sentence
+   templates with `$` placeholders bound to procedures — the language extends
+   itself)
+2. compile sentences, don't interpret them: the same templates emitted as Nim
+   codegen (the `fuse` path) — orchestration joins the compiled world
+3. fast-path stretch/stride fusion: teach `fuse2`/`gpuFuse` what `materialize`
+   knows about shape rules
+4. Neumann (no-flux) BCs in `laplacianCSR` (mirror the missing stencil entry
    into the diagonal) — currently Dirichlet only
-3. generational GC + machine-stack scanning (replace the explicit root registry)
-4. Metal backend behind the same codegen (OpenCL is deprecated on macOS)
-5. implicit/adaptive time stepping (the CSR machinery is 80% there: Jacobians
-   come from the same broadcast trees)
-6. wolves that read the field too (predators herding sheep into the fire —
-   pure emergent-behavior demo)
-7. a real parser for runes-lang syntax itself: the `fuse`/`gpuFuse` macros are
-   the compiler backend seeds; the Cursor/boxed-pos parsers are the frontend
-   seeds. The language is now ~1600 lines of Nim that all compose.
+5. generational GC + machine-stack scanning (replace the explicit root registry)
+6. Metal backend behind the same codegen (OpenCL is deprecated on macOS)
+7. wasm backend for the `.speak` runtime — the browser notebook ("ANYBODY
+   user" runs the world in a tab; see the sibling `ldpl-wasm` experiment)

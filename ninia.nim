@@ -1,4 +1,4 @@
- # runes78.nim — the seed of a simulation language.
+ # ninia.nim — the seed of Ninia, a simulation language grown on Nim.
 #
 # One idea, kept honest:  `u + sin(v*u) - 2.0`  becomes ONE loop over
 # contiguous float64 memory, with zero temporary arrays.

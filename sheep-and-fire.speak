@@ -1,0 +1,41 @@
+# sheep-and-fire.speak — the first program written in Ninia speak.
+# The hybrid: a burning fire, sheep that flee it, wolves that hunt.
+# Every sentence lowers to compiled machinery in the nina runtime.
+
+-- CONFIG --
+GRID IS 33 BY 33
+WORLD IS 2.0 WIDE
+TIME FROM 0 TO 12 BY 0.1
+SEED IS 11
+
+-- DATA --
+temperature IS FIELD
+alpha IS NUMBER WITH VALUE 0.05
+fire IS SPOT AT 0.25, 0.25
+sheep IS SPECIES WITH energy
+wolves IS SPECIES WITH energy
+
+-- SETUP --
+MAKE 40 sheep AT RANDOM WITH energy 1.5
+MAKE 4 wolves AT RANDOM WITH energy 1.5
+SOLVE dtemperature/dt = alpha * lap(temperature) + temperature * (1 - temperature)
+APPLY BOUNDARY zero TO temperature
+HOLD temperature AT 5.0 WITHIN 0.25 OF fire
+
+-- SIMULATION --
+STEP THE FIELD
+FOR EACH s IN sheep DO
+    MOVE s AWAY FROM GRADIENT OF temperature
+    MOVE s AWAY FROM wolves WITHIN 0.08
+    WANDER s
+    GROW energy OF s BY 0.02
+    SPLIT s WHEN energy ABOVE 2.5
+REPEAT
+FOR EACH w IN wolves DO
+    HUNT w EATING sheep WITHIN 0.06 GAINING 1.5
+    GROW energy OF w BY -0.03
+    WANDER w
+REPEAT
+REAP sheep BELOW 0.0
+REAP wolves BELOW 0.0
+REPORT COUNT OF sheep AND COUNT OF wolves AND MEAN temperature AND temperature AT sheep EVERY 20

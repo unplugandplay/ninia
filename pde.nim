@@ -104,11 +104,11 @@ proc parseExpr(c: Cursor): PExpr =
     inc c.pos
     result = PExpr(k: peBin, op: op, l: result, r: parseTerm(c))
 
-proc parsePDE*(s: string): PExpr =
+proc parsePDE*(s: string, dep = "u"): PExpr =
   let parts = s.split('=')
   doAssert parts.len == 2, "PDE must contain exactly one ="
   let lhs = tokenize(parts[0]).mapIt(it.txt).join("")
-  doAssert lhs == "du/dt", "only du/dt = ... supported, got: " & lhs
+  doAssert lhs == "d" & dep & "/dt", "expected d" & dep & "/dt = ..., got: " & lhs
   result = parseExpr(Cursor(toks: tokenize(parts[1])))
 
 # --------------------- method of lines: symbolic AST -> stencil system ---
@@ -141,14 +141,15 @@ proc canEval(e: PExpr, sym: Table[string, float64]): bool =
   except ValueError:
     false
 
-proc toReact(e: PExpr, sym: Table[string, float64], coeff: float64): proc(u: Node2): Node2 =
+proc toReact(e: PExpr, sym: Table[string, float64], coeff: float64,
+             dep: string): proc(u: Node2): Node2 =
   ## translate a nonlinear PExpr into a builder that produces the broadcast
   ## tree for that term, given the `u` source. This IS the bridge from
   ## equations to broadcasting.
   proc build(x: PExpr, u: Node2): Node2 =
     case x.k
     of peVar:
-      if x.name == "u": u
+      if x.name == dep: u
       elif x.name in sym: toNode2(sym[x.name])
       else: raise newException(ValueError, "unknown symbol in reaction: " & x.name)
     of peNum: toNode2(x.v)
@@ -172,30 +173,30 @@ type
   Coeffs* = tuple[lapC, uC, c0: float64, react: proc(u: Node2): Node2]
 
 proc extractCoeffs(e: PExpr, sym: Table[string, float64], coeff: float64,
-                   res: var Coeffs) =
+                   res: var Coeffs, dep: string) =
   case e.k
   of peNum: res.c0 += coeff * e.v
   of peVar:
-    if e.name == "u": res.uC += coeff
+    if e.name == dep: res.uC += coeff
     else: res.c0 += coeff * evalConst(e, sym)
   of peCall:
-    if e.fn == "lap" and e.arg == "u": res.lapC += coeff
+    if e.fn == "lap" and e.arg == dep: res.lapC += coeff
     else: raise newException(ValueError, "unknown function: " & e.fn)
   of peBin:
     case e.op
-    of '+': extractCoeffs(e.l, sym, coeff, res); extractCoeffs(e.r, sym, coeff, res)
-    of '-': extractCoeffs(e.l, sym, coeff, res); extractCoeffs(e.r, sym, -coeff, res)
+    of '+': extractCoeffs(e.l, sym, coeff, res, dep); extractCoeffs(e.r, sym, coeff, res, dep)
+    of '-': extractCoeffs(e.l, sym, coeff, res, dep); extractCoeffs(e.r, sym, -coeff, res, dep)
     of '*':
-      if canEval(e.l, sym): extractCoeffs(e.r, sym, coeff * evalConst(e.l, sym), res)
-      elif canEval(e.r, sym): extractCoeffs(e.l, sym, coeff * evalConst(e.r, sym), res)
+      if canEval(e.l, sym): extractCoeffs(e.r, sym, coeff * evalConst(e.l, sym), res, dep)
+      elif canEval(e.r, sym): extractCoeffs(e.l, sym, coeff * evalConst(e.r, sym), res, dep)
       else:
         # nonlinear in u -> reaction term, expressed as a broadcast tree
         let prev = res.react
-        let f = toReact(e, sym, coeff)
+        let f = toReact(e, sym, coeff, dep)
         res.react = proc(u: Node2): Node2 =
           if prev != nil: prev(u) + f(u) else: f(u)
     of '/':
-      if canEval(e.r, sym): extractCoeffs(e.l, sym, coeff / evalConst(e.r, sym), res)
+      if canEval(e.r, sym): extractCoeffs(e.l, sym, coeff / evalConst(e.r, sym), res, dep)
       else: raise newException(ValueError, "nonlinear division: " & $e)
     else: raise newException(ValueError, "bad op")
 
@@ -239,12 +240,13 @@ proc laplacianCSR*(nx, ny: int, dx: float64, cLap, cU: float64): CSR =
   CSR(n: n, rowPtr: rowPtr, colIdx: colIdx, vals: vals)
 
 proc discretize*(pde: PExpr, nx, ny: int, dx: float64,
-                 sym: Table[string, float64] = initTable[string, float64]()): tuple[A: CSR, react: proc(u: Node2): Node2] =
+                 sym: Table[string, float64] = initTable[string, float64](),
+                 dep = "u"): tuple[A: CSR, react: proc(u: Node2): Node2, lapC: float64] =
   var co: Coeffs
-  extractCoeffs(pde, sym, 1.0, co)
+  extractCoeffs(pde, sym, 1.0, co, dep)
   if co.c0 != 0.0:
     raise newException(ValueError, "constant source terms not supported yet: " & $co.c0)
-  (laplacianCSR(nx, ny, dx, co.lapC, co.uC), co.react)
+  (laplacianCSR(nx, ny, dx, co.lapC, co.uC), co.react, co.lapC)
 
 # ----------------------------------------------------- the running solver ---
 
